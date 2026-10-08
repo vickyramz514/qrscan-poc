@@ -79,6 +79,27 @@ function ensureDeviceRegistered(deviceId: string): Promise<void> {
   return registrationPromise;
 }
 
+function isTransientNetworkError(error: unknown): boolean {
+  if (error instanceof ApiError && error.status !== undefined && error.status < 500) return false;
+  const message = (error instanceof Error ? error.message : '').toLowerCase();
+  return (
+    message.includes('network') ||
+    message.includes('connection') ||
+    message.includes('fetch failed') ||
+    message.includes('could not connect') ||
+    message.includes('timed out') ||
+    message.includes('timeout') ||
+    message.includes('offline') ||
+    message.includes('aborted')
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 export function QrItemsProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ScanListItem[]>([]);
   const [ready, setReady] = useState(false);
@@ -407,27 +428,6 @@ export function useQrItems(): QrItemsContextValue {
 type RetryOutcome = 'synced' | 'waiting' | 'failed' | 'skipped';
 
 const NETWORK_RETRY_DELAYS_MS = [700, 1500, 2500];
-
-function isTransientNetworkError(error: unknown): boolean {
-  if (error instanceof ApiError && error.status !== undefined && error.status < 500) return false;
-  const message = (error instanceof Error ? error.message : '').toLowerCase();
-  return (
-    message.includes('network') ||
-    message.includes('connection') ||
-    message.includes('fetch failed') ||
-    message.includes('could not connect') ||
-    message.includes('timed out') ||
-    message.includes('timeout') ||
-    message.includes('offline') ||
-    message.includes('aborted')
-  );
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
 
 async function retryScan(
   item: ScanListItem,
