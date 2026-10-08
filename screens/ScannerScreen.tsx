@@ -69,8 +69,8 @@ export function ScannerScreen({ onClose }: ScannerScreenProps) {
 
   const onClear = useCallback(() => {
     Alert.alert(
-      'Clear the list?',
-      'This clears the codes on screen. Scans already sent to the server stay there.',
+      'Clear all scans?',
+      'This deletes every scan stored on the server.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Clear', style: 'destructive', onPress: () => clearAll() },

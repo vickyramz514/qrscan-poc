@@ -13,6 +13,7 @@ import {
 import { SCAN_DEBOUNCE_MS } from '../services/config';
 import { ApiError } from '../src/api/client';
 import {
+  clearScans,
   getDeviceScanHistory,
   initializeDevice,
   submitScan,
@@ -54,7 +55,7 @@ type QrItemsContextValue = {
   addScan: (detection: DetectedCode) => ScanResult;
   save: () => Promise<void>;
   refresh: () => Promise<void>;
-  clearAll: () => void;
+  clearAll: () => Promise<void>;
 };
 
 const QrItemsContext = createContext<QrItemsContextValue | null>(null);
@@ -93,6 +94,8 @@ export function QrItemsProvider({ children }: { children: ReactNode }) {
   const isOnlineRef = useRef(false);
   const sawNetworkRef = useRef(false);
   const syncingRef = useRef(false);
+  const followUpRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightRef = useRef<Set<string>>(new Set());
   /** Codes already stored for this device, including rows cleared from the screen. */
   const knownCodesRef = useRef<Set<string>>(new Set());
@@ -109,6 +112,18 @@ export function QrItemsProvider({ children }: { children: ReactNode }) {
     setItems((current) => mergeServerScans(current, history.scans));
   }, []);
 
+  const syncPendingRef = useRef<() => Promise<void>>(async () => undefined);
+
+  const scheduleFollowUp = useCallback(() => {
+    if (!isOnlineRef.current || followUpRef.current >= 4) return;
+    followUpRef.current += 1;
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = setTimeout(() => {
+      retryTimerRef.current = null;
+      void syncPendingRef.current();
+    }, 1200);
+  }, []);
+
   const submitInBackground = useCallback(
     (item: ScanListItem) => {
       if (!isOnlineRef.current) return;
@@ -120,9 +135,11 @@ export function QrItemsProvider({ children }: { children: ReactNode }) {
         isOnlineRef,
         setItems,
         showNotice,
-      );
+      ).then((result) => {
+        if (result === 'waiting' && isOnlineRef.current) scheduleFollowUp();
+      });
     },
-    [showNotice],
+    [scheduleFollowUp, showNotice],
   );
 
   const syncPending = useCallback(async () => {
@@ -130,7 +147,9 @@ export function QrItemsProvider({ children }: { children: ReactNode }) {
 
     const pending = itemsRef.current.filter(
       (item) =>
-        (item.clientStatus === 'failed' || item.clientStatus === 'local') &&
+        (item.clientStatus === 'failed' ||
+          item.clientStatus === 'local' ||
+          item.clientStatus === 'syncing') &&
         !inFlightRef.current.has(item.listKey),
     );
     if (pending.length === 0) return;
@@ -145,16 +164,31 @@ export function QrItemsProvider({ children }: { children: ReactNode }) {
     );
 
     try {
-      await Promise.all(
-        pending.map((item) =>
-          retryScan(item, deviceIdRef, knownCodesRef, inFlightRef, isOnlineRef, setItems, showNotice),
-        ),
-      );
+      let stillWaiting = false;
+      for (const item of pending) {
+        const result = await retryScan(
+          item,
+          deviceIdRef,
+          knownCodesRef,
+          inFlightRef,
+          isOnlineRef,
+          setItems,
+          showNotice,
+        );
+        if (result === 'waiting') stillWaiting = true;
+        if (!isOnlineRef.current) break;
+      }
+      if (stillWaiting && isOnlineRef.current) {
+        if (followUpRef.current < 4) scheduleFollowUp();
+        else showNotice("Couldn't sync yet. Saved on this phone.", 'error');
+      }
     } finally {
       syncingRef.current = false;
       setSyncing(false);
     }
-  }, [showNotice]);
+  }, [scheduleFollowUp, showNotice]);
+
+  syncPendingRef.current = syncPending;
 
   useEffect(() => {
     let active = true;
@@ -188,6 +222,26 @@ export function QrItemsProvider({ children }: { children: ReactNode }) {
     };
   }, [applyHistory]);
 
+  const reloadHistory = useCallback(async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const deviceId = deviceIdRef.current ?? (await loadDeviceId());
+        deviceIdRef.current = deviceId;
+        await ensureDeviceRegistered(deviceId);
+        applyHistory(await getDeviceScanHistory(deviceId));
+        historyStarted = true;
+        return;
+      } catch (error) {
+        historyStarted = false;
+        if (attempt < 2 && isOnlineRef.current && isTransientNetworkError(error)) {
+          await delay(800 * (attempt + 1));
+          continue;
+        }
+        console.warn('[scanner] getDeviceScanHistory failed', error);
+      }
+    }
+  }, [applyHistory]);
+
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
       const online = isOnlineState(state);
@@ -196,12 +250,29 @@ export function QrItemsProvider({ children }: { children: ReactNode }) {
       sawNetworkRef.current = true;
       isOnlineRef.current = online;
       setIsOnline(online);
-      if (online && (first || !previous)) {
-        void syncPending();
+      if (!online) {
+        followUpRef.current = 0;
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = null;
+        }
+        return;
+      }
+      if (!first && !previous) {
+        followUpRef.current = 0;
+        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          void syncPending();
+          void reloadHistory();
+        }, 700);
       }
     });
-    return unsubscribe;
-  }, [syncPending]);
+    return () => {
+      unsubscribe();
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, [syncPending, reloadHistory]);
 
   useEffect(() => {
     if (!notice) return;
@@ -278,9 +349,16 @@ export function QrItemsProvider({ children }: { children: ReactNode }) {
     }
   }, [applyHistory, showNotice]);
 
-  const clearAll = useCallback(() => {
-    setItems([]);
-    showNotice('Cleared', 'success');
+  const clearAll = useCallback(async () => {
+    try {
+      await clearScans();
+      knownCodesRef.current.clear();
+      setItems([]);
+      showNotice('Cleared', 'success');
+    } catch (error) {
+      console.warn('[scanner] clear failed', error);
+      showNotice(error instanceof ApiError ? error.message : "Couldn't clear scans", 'error');
+    }
   }, [showNotice]);
 
   const value = useMemo<QrItemsContextValue>(() => {
@@ -326,6 +404,31 @@ export function useQrItems(): QrItemsContextValue {
   return value;
 }
 
+type RetryOutcome = 'synced' | 'waiting' | 'failed' | 'skipped';
+
+const NETWORK_RETRY_DELAYS_MS = [700, 1500, 2500];
+
+function isTransientNetworkError(error: unknown): boolean {
+  if (error instanceof ApiError && error.status !== undefined && error.status < 500) return false;
+  const message = (error instanceof Error ? error.message : '').toLowerCase();
+  return (
+    message.includes('network') ||
+    message.includes('connection') ||
+    message.includes('fetch failed') ||
+    message.includes('could not connect') ||
+    message.includes('timed out') ||
+    message.includes('timeout') ||
+    message.includes('offline') ||
+    message.includes('aborted')
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 async function retryScan(
   item: ScanListItem,
   deviceIdRef: { current: string | null },
@@ -334,55 +437,78 @@ async function retryScan(
   isOnlineRef: { current: boolean },
   setItems: (update: (current: ScanListItem[]) => ScanListItem[]) => void,
   showNotice: (message: string, tone: 'success' | 'error') => void,
-): Promise<void> {
-  if (inFlightRef.current.has(item.listKey)) return;
+): Promise<RetryOutcome> {
+  if (inFlightRef.current.has(item.listKey)) return 'skipped';
   inFlightRef.current.add(item.listKey);
 
+  const keepLocal = () => {
+    setItems((current) =>
+      current.map((row) =>
+        row.listKey === item.listKey ? { ...row, clientStatus: 'local' as const } : row,
+      ),
+    );
+  };
+
   try {
-    const deviceId = deviceIdRef.current ?? (await loadDeviceId());
-    deviceIdRef.current = deviceId;
-    await ensureDeviceRegistered(deviceId);
-    if (knownCodesRef.current.has(item.code)) {
-      setItems((current) => current.filter((row) => row.listKey !== item.listKey));
-      showNotice('This code already exists', 'error');
-      return;
+    for (let attempt = 0; attempt <= NETWORK_RETRY_DELAYS_MS.length; attempt += 1) {
+      if (!isOnlineRef.current) {
+        keepLocal();
+        return 'waiting';
+      }
+
+      try {
+        const deviceId = deviceIdRef.current ?? (await loadDeviceId());
+        deviceIdRef.current = deviceId;
+        await ensureDeviceRegistered(deviceId);
+        if (knownCodesRef.current.has(item.code)) {
+          setItems((current) => current.filter((row) => row.listKey !== item.listKey));
+          showNotice('This code already exists', 'error');
+          return 'skipped';
+        }
+        const saved = await submitScan({
+          deviceId,
+          code: item.code,
+          type: item.type,
+        });
+        knownCodesRef.current.add(item.code);
+        setItems((current) =>
+          current.map((row) =>
+            row.listKey === item.listKey
+              ? {
+                  ...row,
+                  id: saved.id || row.id,
+                  deviceId,
+                  status: saved.status || 'saved',
+                  createdAt: saved.createdAt || row.createdAt,
+                  clientStatus: 'synced' as const,
+                }
+              : row,
+          ),
+        );
+        return 'synced';
+      } catch (error) {
+        const retryable = !isOnlineRef.current || isTransientNetworkError(error);
+        if (retryable && attempt < NETWORK_RETRY_DELAYS_MS.length && isOnlineRef.current) {
+          await delay(NETWORK_RETRY_DELAYS_MS[attempt] ?? 700);
+          continue;
+        }
+        if (retryable) {
+          keepLocal();
+          return 'waiting';
+        }
+        console.warn('[scanner] retry failed', error);
+        setItems((current) =>
+          current.map((row) =>
+            row.listKey === item.listKey ? { ...row, clientStatus: 'failed' as const } : row,
+          ),
+        );
+        showNotice(error instanceof ApiError ? error.message : "Couldn't save scan", 'error');
+        return 'failed';
+      }
     }
-    const saved = await submitScan({
-      deviceId,
-      code: item.code,
-      type: item.type,
-    });
-    knownCodesRef.current.add(item.code);
-    setItems((current) =>
-      current.map((row) =>
-        row.listKey === item.listKey
-          ? {
-              ...row,
-              id: saved.id || row.id,
-              deviceId,
-              status: saved.status || 'saved',
-              createdAt: saved.createdAt || row.createdAt,
-              clientStatus: 'synced' as const,
-            }
-          : row,
-      ),
-    );
-  } catch (error) {
-    if (!isOnlineRef.current) {
-      setItems((current) =>
-        current.map((row) =>
-          row.listKey === item.listKey ? { ...row, clientStatus: 'local' as const } : row,
-        ),
-      );
-      return;
-    }
-    console.warn('[scanner] retry failed', error);
-    setItems((current) =>
-      current.map((row) =>
-        row.listKey === item.listKey ? { ...row, clientStatus: 'failed' as const } : row,
-      ),
-    );
-    showNotice(error instanceof ApiError ? error.message : "Couldn't save scan", 'error');
+
+    keepLocal();
+    return 'waiting';
   } finally {
     inFlightRef.current.delete(item.listKey);
   }
