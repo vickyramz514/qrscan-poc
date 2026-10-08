@@ -197,7 +197,16 @@ export function QrItemsProvider({ children }: { children: ReactNode }) {
           showNotice,
         );
         if (result === 'waiting') stillWaiting = true;
-        if (!isOnlineRef.current) break;
+        if (!isOnlineRef.current) {
+          setItems((current) =>
+            current.map((row) =>
+              pendingKeys.has(row.listKey) && row.clientStatus === 'syncing'
+                ? { ...row, clientStatus: 'local' }
+                : row,
+            ),
+          );
+          break;
+        }
       }
       if (stillWaiting && isOnlineRef.current) {
         if (followUpRef.current < 4) scheduleFollowUp();
