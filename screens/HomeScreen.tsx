@@ -11,7 +11,7 @@ type HomeScreenProps = {
 export function HomeScreen({ onStartScanning }: HomeScreenProps) {
   const { ready, items, localCount, syncingCount, syncedCount, failedCount, isOnline, syncing } =
     useQrItems();
-  const recent = items.slice(-3).reverse();
+  const scans = [...items].reverse();
 
   return (
     <Screen>
@@ -44,10 +44,10 @@ export function HomeScreen({ onStartScanning }: HomeScreenProps) {
           </Text>
         ) : null}
 
-        <Text style={styles.section}>{recent.length > 0 ? 'Recent' : 'Saved scans'}</Text>
-        {recent.length > 0 ? (
+        <Text style={styles.section}>{scans.length > 0 ? 'Scans' : 'Saved scans'}</Text>
+        {scans.length > 0 ? (
           <View style={styles.recent}>
-            {recent.map((item, index) => (
+            {scans.map((item, index) => (
               <ScannedItemRow key={item.listKey} item={item} highlight={index === 0} />
             ))}
           </View>
