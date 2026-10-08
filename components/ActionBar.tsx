@@ -15,7 +15,7 @@ export function ActionBar({ onSave, onClear, saving, canClear }: ActionBarProps)
         onPress={onSave}
         disabled={saving}
       >
-        <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save'}</Text>
+        <Text style={styles.saveText}>{saving ? 'Syncing…' : 'Save'}</Text>
       </Pressable>
       <Pressable
         style={({ pressed }) => [styles.clear, !canClear && styles.disabled, pressed && canClear && styles.pressed]}

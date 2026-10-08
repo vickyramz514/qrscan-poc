@@ -2,14 +2,28 @@ import { CameraView, type BarcodeScanningResult, type BarcodeType } from 'expo-c
 import { memo, useCallback, useRef } from 'react';
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
-const QR_TYPES: BarcodeType[] = ['qr'];
+const BARCODE_TYPES: BarcodeType[] = [
+  'qr',
+  'ean13',
+  'ean8',
+  'code128',
+  'code39',
+  'code93',
+  'upc_a',
+  'upc_e',
+  'itf14',
+  'codabar',
+  'datamatrix',
+  'pdf417',
+  'aztec',
+];
 
 const barcodeScannerSettings = {
-  barcodeTypes: QR_TYPES,
+  barcodeTypes: BARCODE_TYPES,
 };
 
 type ScannerViewProps = {
-  onCode: (value: string) => void;
+  onCode: (detection: { code: string; scannerType: string }) => void;
 };
 
 function Corner({ style }: { style: ViewStyle }) {
@@ -22,9 +36,9 @@ function ScannerViewComponent({ onCode }: ScannerViewProps) {
 
   // Stable callback so the camera preview is not restarted when the list updates.
   const onBarcodeScanned = useCallback((result: BarcodeScanningResult) => {
-    const value = result.data.trim();
-    if (!value) return;
-    onCodeRef.current(value);
+    const code = result.data.trim();
+    if (!code) return;
+    onCodeRef.current({ code, scannerType: result.type });
   }, []);
 
   return (

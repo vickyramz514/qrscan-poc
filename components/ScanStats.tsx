@@ -2,7 +2,8 @@ import { StyleSheet, Text, View } from 'react-native';
 
 type ScanStatsProps = {
   total: number;
-  pendingCount: number;
+  localCount: number;
+  syncingCount: number;
   syncedCount: number;
   failedCount: number;
   isOnline: boolean;
@@ -10,19 +11,20 @@ type ScanStatsProps = {
 
 export function ScanStats({
   total,
-  pendingCount,
+  localCount,
+  syncingCount,
   syncedCount,
   failedCount,
   isOnline,
 }: ScanStatsProps) {
   return (
     <View style={styles.box}>
-      <Text style={styles.title}>Scanned items</Text>
+      <Text style={styles.title}>Scanned items ({total})</Text>
       <View style={styles.chips}>
-        <Chip label={`${total} total`} />
-        <Chip label={`${pendingCount} pending`} tone="pending" />
         <Chip label={`${syncedCount} synced`} tone="synced" />
-        {failedCount > 0 ? <Chip label={`${failedCount} failed`} tone="failed" /> : null}
+        {localCount > 0 ? <Chip label={`${localCount} saved locally`} tone="local" /> : null}
+        {syncingCount > 0 ? <Chip label={`${syncingCount} syncing`} tone="syncing" /> : null}
+        {failedCount > 0 ? <Chip label={`${failedCount} sync failed`} tone="failed" /> : null}
         <Chip label={isOnline ? 'Online' : 'Offline'} tone={isOnline ? 'synced' : 'failed'} />
       </View>
     </View>
@@ -34,7 +36,7 @@ function Chip({
   tone = 'neutral',
 }: {
   label: string;
-  tone?: 'neutral' | 'pending' | 'synced' | 'failed';
+  tone?: 'neutral' | 'local' | 'syncing' | 'synced' | 'failed';
 }) {
   return (
     <View style={[styles.chip, chipTone[tone]]}>
@@ -45,14 +47,16 @@ function Chip({
 
 const chipTone = StyleSheet.create({
   neutral: { backgroundColor: '#f1f5f9' },
-  pending: { backgroundColor: '#fef3c7' },
+  local: { backgroundColor: '#ffedd5' },
+  syncing: { backgroundColor: '#e0f2fe' },
   synced: { backgroundColor: '#dcfce7' },
   failed: { backgroundColor: '#fee2e2' },
 });
 
 const chipTextTone = StyleSheet.create({
   neutral: { color: '#334155' },
-  pending: { color: '#92400e' },
+  local: { color: '#c2410c' },
+  syncing: { color: '#075985' },
   synced: { color: '#166534' },
   failed: { color: '#991b1b' },
 });
@@ -78,6 +82,9 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,

@@ -1,16 +1,17 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import type { QrItem, SyncStatus } from '../types/qrItem';
+import type { ClientScanStatus, ScanListItem } from '../types/api';
 import { formatScanTime } from '../utils/formatTime';
 
-const STATUS_LABEL: Record<SyncStatus, string> = {
-  pending: 'Pending',
-  synced: 'Synced',
-  failed: 'Failed',
+const STATUS_LABEL: Record<ClientScanStatus, string> = {
+  synced: '🟢 Synced',
+  local: '🟠 Saved locally',
+  syncing: '🔄 Syncing…',
+  failed: '🔴 Sync failed',
 };
 
 type ScannedItemRowProps = {
-  item: QrItem;
+  item: ScanListItem;
   highlight?: boolean;
 };
 
@@ -19,13 +20,13 @@ export function ScannedItemRow({ item, highlight = false }: ScannedItemRowProps)
     <View style={[styles.row, highlight && styles.highlight]}>
       <View style={styles.copy}>
         <Text style={styles.code} numberOfLines={1}>
-          {item.qrCode}
+          {item.code}
         </Text>
-        <Text style={styles.time}>{formatScanTime(item.scannedAt)}</Text>
+        <Text style={styles.time}>{formatScanTime(item.createdAt)}</Text>
       </View>
-      <View style={[styles.pill, pillTone[item.syncStatus]]}>
-        <Text style={[styles.pillText, pillTextTone[item.syncStatus]]}>
-          {STATUS_LABEL[item.syncStatus]}
+      <View style={[styles.pill, pillTone[item.clientStatus]]}>
+        <Text style={[styles.pillText, pillTextTone[item.clientStatus]]} numberOfLines={1}>
+          {STATUS_LABEL[item.clientStatus]}
         </Text>
       </View>
     </View>
@@ -33,14 +34,16 @@ export function ScannedItemRow({ item, highlight = false }: ScannedItemRowProps)
 }
 
 const pillTone = StyleSheet.create({
-  pending: { backgroundColor: '#fef3c7' },
   synced: { backgroundColor: '#dcfce7' },
+  local: { backgroundColor: '#ffedd5' },
+  syncing: { backgroundColor: '#e0f2fe' },
   failed: { backgroundColor: '#fee2e2' },
 });
 
 const pillTextTone = StyleSheet.create({
-  pending: { color: '#92400e' },
   synced: { color: '#166534' },
+  local: { color: '#c2410c' },
+  syncing: { color: '#075985' },
   failed: { color: '#991b1b' },
 });
 

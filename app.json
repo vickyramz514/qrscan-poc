@@ -31,7 +31,8 @@
       "permissions": [
         "android.permission.CAMERA"
       ],
-      "package": "com.vickyramz22.qrscanpoc"
+      "package": "com.vickyramz22.qrscanpoc",
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"

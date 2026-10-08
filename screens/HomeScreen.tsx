@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { ScannedItemRow } from '../components/ScannedItemRow';
 import { Screen } from '../components/Screen';
@@ -9,7 +9,8 @@ type HomeScreenProps = {
 };
 
 export function HomeScreen({ onStartScanning }: HomeScreenProps) {
-  const { ready, items, pendingCount, syncedCount, failedCount, isOnline } = useQrItems();
+  const { ready, items, localCount, syncingCount, syncedCount, failedCount, isOnline, syncing } =
+    useQrItems();
   const recent = items.slice(-3).reverse();
 
   return (
@@ -18,37 +19,43 @@ export function HomeScreen({ onStartScanning }: HomeScreenProps) {
         <View style={styles.titleRow}>
           <Text style={styles.title}>QR Scanner</Text>
           <View style={[styles.network, isOnline ? styles.networkOnline : styles.networkOffline]}>
-            <View style={[styles.dot, isOnline ? styles.dotOnline : styles.dotOffline]} />
+            {syncing ? (
+              <ActivityIndicator size="small" color="#166534" />
+            ) : (
+              <View style={[styles.dot, isOnline ? styles.dotOnline : styles.dotOffline]} />
+            )}
             <Text style={[styles.networkText, isOnline ? styles.online : styles.offline]}>
               {isOnline ? 'Online' : 'Offline'}
             </Text>
           </View>
         </View>
         <Text style={styles.subtitle}>
-          Scan continuously, keep every code on this device, and sync when the network returns.
+          Each scan shows whether it reached the server, is uploading, or is waiting on this phone.
         </Text>
 
         <View style={styles.stats}>
-          <Stat label="Records" value={ready ? String(items.length) : '–'} />
-          <Stat label="Pending" value={ready ? String(pendingCount) : '–'} />
           <Stat label="Synced" value={ready ? String(syncedCount) : '–'} />
+          <Stat label="Local" value={ready ? String(localCount) : '–'} />
+          <Stat label="Syncing" value={ready ? String(syncingCount) : '–'} />
         </View>
         {failedCount > 0 ? (
-          <Text style={styles.failed}>{failedCount} failed and waiting to retry</Text>
+          <Text style={styles.failed}>
+            {failedCount} couldn’t upload. They’ll retry when you’re back online.
+          </Text>
         ) : null}
 
         <Text style={styles.section}>{recent.length > 0 ? 'Recent' : 'Saved scans'}</Text>
         {recent.length > 0 ? (
           <View style={styles.recent}>
             {recent.map((item, index) => (
-              <ScannedItemRow key={item.id} item={item} highlight={index === 0} />
+              <ScannedItemRow key={item.listKey} item={item} highlight={index === 0} />
             ))}
           </View>
         ) : (
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>{ready ? 'Nothing saved yet' : 'Loading saved scans…'}</Text>
+            <Text style={styles.emptyTitle}>{ready ? 'No scans yet' : 'Loading scans…'}</Text>
             <Text style={styles.emptyBody}>
-              Start the camera, scan a few codes, then press Save. They stay here after you close the app.
+              Start the camera and scan a code. It is sent to the server without waiting on the result.
             </Text>
           </View>
         )}

@@ -1,15 +1,17 @@
 import { useEffect, useRef } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { ScannedItemRow } from './ScannedItemRow';
-import type { QrItem } from '../types/qrItem';
+import type { ScanListItem } from '../types/api';
 
 type ScannedListProps = {
-  items: QrItem[];
+  items: ScanListItem[];
+  refreshing?: boolean;
+  onRefresh?: () => void;
 };
 
-export function ScannedList({ items }: ScannedListProps) {
-  const listRef = useRef<FlatList<QrItem>>(null);
+export function ScannedList({ items, refreshing = false, onRefresh }: ScannedListProps) {
+  const listRef = useRef<FlatList<ScanListItem>>(null);
 
   useEffect(() => {
     if (items.length === 0) return;
@@ -24,15 +26,28 @@ export function ScannedList({ items }: ScannedListProps) {
       ref={listRef}
       style={styles.list}
       data={items}
-      keyExtractor={(item) => item.id}
+      keyExtractor={(item) => item.listKey}
       renderItem={({ item, index }) => (
         <ScannedItemRow item={item} highlight={index === items.length - 1} />
       )}
       ListEmptyComponent={
         <View style={styles.emptyWrap}>
           <Text style={styles.emptyTitle}>No scans yet</Text>
-          <Text style={styles.empty}>Point the camera at a QR code. Each unique value is added once.</Text>
+          <Text style={styles.empty}>
+            Point the camera at a code. The status shows if it synced, is uploading, or is waiting on this phone.
+          </Text>
         </View>
+      }
+      alwaysBounceVertical
+      refreshControl={
+        onRefresh ? (
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#0f172a"
+            colors={['#0f172a']}
+          />
+        ) : undefined
       }
       contentContainerStyle={items.length === 0 ? styles.emptyContainer : styles.content}
     />

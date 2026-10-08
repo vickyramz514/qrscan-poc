@@ -18,17 +18,22 @@ export function ScannerScreen({ onClose }: ScannerScreenProps) {
     items,
     isOnline,
     notice,
-    pendingCount,
+    localCount,
+    syncingCount,
     syncedCount,
     failedCount,
     saving,
+    refreshing,
     addScan,
     save,
+    refresh,
     clearAll,
   } = useQrItems();
 
   const [permission, requestPermission] = useCameraPermissions();
-  const [snackbar, setSnackbar] = useState<string | null>(null);
+  const [snackbar, setSnackbar] = useState<{ message: string; tone: 'success' | 'error' } | null>(
+    null,
+  );
   const [snackbarId, setSnackbarId] = useState(0);
   const askedRef = useRef(false);
 
@@ -44,25 +49,33 @@ export function ScannerScreen({ onClose }: ScannerScreenProps) {
     void requestPermission();
   }, [permission, requestPermission]);
 
-  const showSnackbar = useCallback((message: string) => {
-    setSnackbar(message);
+  const showSnackbar = useCallback((message: string, tone: 'success' | 'error' = 'success') => {
+    setSnackbar({ message, tone });
     setSnackbarId((id) => id + 1);
   }, []);
 
   const onCode = useCallback(
-    (value: string) => {
-      const result = addScan(value);
-      if (result === 'duplicate') showSnackbar('QR code already exists');
-      else if (result === 'added') showSnackbar(`Added ${truncate(value)}`);
+    (detection: { code: string; scannerType: string }) => {
+      const result = addScan(detection);
+      if (result === 'duplicate') {
+        showSnackbar('This code already exists', 'error');
+        return;
+      }
+      if (result !== 'added') return;
+      showSnackbar(`Added ${truncate(detection.code)}`);
     },
     [addScan, showSnackbar],
   );
 
   const onClear = useCallback(() => {
-    Alert.alert('Clear scans?', 'This removes every code saved on this device.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear', style: 'destructive', onPress: () => void clearAll() },
-    ]);
+    Alert.alert(
+      'Clear the list?',
+      'This clears the codes on screen. Scans already sent to the server stay there.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Clear', style: 'destructive', onPress: () => clearAll() },
+      ],
+    );
   }, [clearAll]);
 
   return (
@@ -98,15 +111,20 @@ export function ScannerScreen({ onClose }: ScannerScreenProps) {
 
       <ScanStats
         total={items.length}
-        pendingCount={pendingCount}
+        localCount={localCount}
+        syncingCount={syncingCount}
         syncedCount={syncedCount}
         failedCount={failedCount}
         isOnline={isOnline}
       />
 
-      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+      {notice ? (
+        <Text style={[styles.notice, notice.tone === 'error' && styles.noticeError]}>
+          {notice.message}
+        </Text>
+      ) : null}
 
-      <ScannedList items={items} />
+      <ScannedList items={items} refreshing={refreshing} onRefresh={() => void refresh()} />
       <ActionBar
         onSave={() => void save()}
         onClear={onClear}
@@ -116,8 +134,8 @@ export function ScannerScreen({ onClose }: ScannerScreenProps) {
 
       {snackbar ? (
         <View pointerEvents="none" style={styles.snackbarAnchor}>
-          <View style={styles.snackbar}>
-            <Text style={styles.snackbarText}>{snackbar}</Text>
+          <View style={[styles.snackbar, snackbar.tone === 'error' && styles.snackbarError]}>
+            <Text style={styles.snackbarText}>{snackbar.message}</Text>
           </View>
         </View>
       ) : null}
@@ -184,6 +202,10 @@ const styles = StyleSheet.create({
     color: '#166534',
     fontWeight: '700',
   },
+  noticeError: {
+    backgroundColor: '#fee2e2',
+    color: '#991b1b',
+  },
   snackbarAnchor: {
     position: 'absolute',
     left: 16,
@@ -197,6 +219,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     backgroundColor: '#0f172a',
+  },
+  snackbarError: {
+    backgroundColor: '#991b1b',
   },
   snackbarText: {
     color: '#fff',
